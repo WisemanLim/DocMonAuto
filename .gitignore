@@ -2,7 +2,19 @@
 .psci_modules
 bower_components
 node_modules
+.next
 
 # Generated files
 .psci
 output
+.omc
+
+# IDE files
+.idea
+.vscode
+*.sublime-project
+*.sublime-workspace
+
+# OS files
+.DS_Store
+Thumbs.db

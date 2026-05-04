@@ -1,0 +1,103 @@
+version: "3.9"
+
+services:
+  # ── PostgreSQL + pgvector ────────────────────────────────────────
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: docmonauto-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DATABASE_NAME}
+      POSTGRES_USER: ${DATABASE_USER}
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD}
+    ports:
+      - "${DATABASE_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-db.sql:/docker-entrypoint-initdb.d/init-db.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DATABASE_USER} -d ${DATABASE_NAME}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Valkey (Redis OSS fork, BSD-3) ─────────────────────────────
+  valkey:
+    image: valkey/valkey:8-alpine
+    container_name: docmonauto-valkey
+    restart: unless-stopped
+    command: valkey-server --requirepass ${REDIS_PASSWORD:-}
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - valkey_data:/data
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Backend (NestJS) ────────────────────────────────────────────
+  backend:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+      target: development
+    container_name: docmonauto-backend
+    restart: unless-stopped
+    env_file:
+      - ../.env
+    environment:
+      DATABASE_URL: postgresql://${DATABASE_USER}:${DATABASE_PASSWORD}@postgres:5432/${DATABASE_NAME}
+      REDIS_URL: redis://:${REDIS_PASSWORD:-}@valkey:6379
+      AGENT_BASE_URL: http://agent:${AGENT_PORT:-8080}
+    ports:
+      - "${APP_PORT:-3001}:3001"
+    volumes:
+      - ../backend:/app
+      - /app/node_modules
+    depends_on:
+      postgres:
+        condition: service_healthy
+      valkey:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3001/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # ── Storage Agent (Python FastAPI) ─────────────────────────────
+  agent:
+    build:
+      context: ../agent
+      dockerfile: Dockerfile
+    container_name: docmonauto-agent
+    restart: unless-stopped
+    env_file:
+      - ../.env
+    environment:
+      DATABASE_URL: postgresql://${DATABASE_USER}:${DATABASE_PASSWORD}@postgres:5432/${DATABASE_NAME}
+      BACKEND_URL: http://backend:${APP_PORT:-3001}
+      AGENT_PORT: ${AGENT_PORT:-8080}
+    ports:
+      - "${AGENT_PORT:-8080}:8080"
+    volumes:
+      - ../agent:/app
+      - ${LOCAL_WATCH_PATH:-/tmp/docmonauto-watch}:/watch:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+volumes:
+  postgres_data:
+  valkey_data:

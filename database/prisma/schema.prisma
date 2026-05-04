@@ -1,0 +1,344 @@
+// DocMonAuto — Prisma Schema
+// PostgreSQL + pgvector
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  extensions = [uuidOssp(map: "uuid-ossp"), vector, pgTrgm(map: "pg_trgm")]
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Enums
+// ─────────────────────────────────────────────────────────────────
+
+enum UserRole {
+  SUPER_ADMIN
+  ADMIN
+  EDITOR
+  VIEWER
+}
+
+enum StorageProvider {
+  AWS_S3
+  GCP_STORAGE
+  AZURE_BLOB
+  ON_PREMISE
+  NAVER_CLOUD
+  KT_CLOUD
+}
+
+enum SecurityLevel {
+  OPEN
+  INTERNAL
+  CONFIDENTIAL
+  SECRET
+}
+
+enum Jurisdiction {
+  KR
+  EU
+  US
+  GLOBAL
+}
+
+enum IndexingStrategy {
+  VECTOR_ONLY
+  VECTORLESS_ONLY
+  BOTH
+}
+
+enum EventType {
+  CREATE
+  UPDATE
+  DELETE
+}
+
+enum JobStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum AgentStatus {
+  ONLINE
+  OFFLINE
+  ERROR
+}
+
+enum QueryChannel {
+  BROWSER
+  API
+  MCP
+  A2A
+  DESKTOP
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Users & Auth
+// ─────────────────────────────────────────────────────────────────
+
+model User {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email       String    @unique
+  name        String
+  password    String    // bcrypt hashed
+  role        UserRole  @default(VIEWER)
+  orgUnit     String?
+  jurisdiction Jurisdiction @default(GLOBAL)
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  queryLogs   QueryLog[]
+
+  @@map("users")
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Storage Agents
+// ─────────────────────────────────────────────────────────────────
+
+model Agent {
+  id            String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name          String
+  endpoint      String      // http://agent-host:8080
+  secretHash    String      // bcrypt hash of shared secret
+  status        AgentStatus @default(OFFLINE)
+  watchPath     String?     // local filesystem path for ON_PREMISE
+  lastHeartbeat DateTime?
+  config        Json?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  storages      Storage[]
+
+  @@map("agents")
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Storage Connectors
+// ─────────────────────────────────────────────────────────────────
+
+model Storage {
+  id          String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name        String
+  provider    StorageProvider
+  configEnc   String          // AES-256-GCM encrypted JSON (credentials)
+  isActive    Boolean         @default(true)
+  agentId     String?         @db.Uuid
+  agent       Agent?          @relation(fields: [agentId], references: [id])
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  documents   Document[]
+
+  @@map("storages")
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Documents (metadata only — no content stored centrally)
+// ─────────────────────────────────────────────────────────────────
+
+model Document {
+  id            String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  storageId     String        @db.Uuid
+  storage       Storage       @relation(fields: [storageId], references: [id])
+  externalId    String        // object key / file path in the storage
+  name          String
+  contentType   String        @default("application/octet-stream")
+  sizeBytes     BigInt        @default(0)
+  securityLevel SecurityLevel @default(INTERNAL)
+  orgUnit       String?
+  jurisdiction  Jurisdiction  @default(GLOBAL)
+  tags          String[]      @default([])
+  metadata      Json?
+  isDeleted     Boolean       @default(false)
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  indexStatus   DocumentIndexStatus?
+  indexingJobs  IndexingJob[]
+
+  @@unique([storageId, externalId])
+  @@index([securityLevel])
+  @@index([jurisdiction])
+  @@index([isDeleted])
+  @@map("documents")
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Index Status (per document, per strategy)
+// ─────────────────────────────────────────────────────────────────
+
+model DocumentIndexStatus {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  documentId  String   @unique @db.Uuid
+  document    Document @relation(fields: [documentId], references: [id])
+
+  // Vector (embedding) index
+  vectorReady     Boolean   @default(false)
+  vectorVersion   Int       @default(0)
+  vectorModel     String?
+  vectorUpdatedAt DateTime?
+
+  // Vectorless (BM25 / PostgreSQL FTS) index
+  vectorlessReady     Boolean   @default(false)
+  vectorlessVersion   Int       @default(0)
+  vectorlessUpdatedAt DateTime?
+
+  agentId     String?   @db.Uuid
+  chunkCount  Int       @default(0)
+  errorMsg    String?
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@map("document_index_status")
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Indexing Jobs (priority queue — mirrors BullMQ)
+// ─────────────────────────────────────────────────────────────────
+
+model IndexingJob {
+  id              String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  documentId      String           @db.Uuid
+  document        Document         @relation(fields: [documentId], references: [id])
+  eventType       EventType
+  strategy        IndexingStrategy @default(BOTH)
+  priorityScore   Float            @default(0.5)
+  status          JobStatus        @default(PENDING)
+  agentId         String?          @db.Uuid
+  attempts        Int              @default(0)
+  maxAttempts     Int              @default(3)
+  errorMsg        String?
+  bullJobId       String?          // BullMQ job ID reference
+  scheduledAt     DateTime         @default(now())
+  startedAt       DateTime?
+  completedAt     DateTime?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  @@index([status, priorityScore(sort: Desc)])
+  @@index([documentId])
+  @@map("indexing_jobs")
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Policy Engine Rules
+// ─────────────────────────────────────────────────────────────────
+
+model Policy {
+  id               String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name             String
+  description      String?
+  priority         Int              @default(0) // higher = evaluated first
+  isActive         Boolean          @default(true)
+
+  // Match conditions (OR within array, AND between fields)
+  securityLevels   SecurityLevel[]  @default([])
+  jurisdictions    Jurisdiction[]   @default([])
+  orgUnits         String[]         @default([])
+
+  // Decisions
+  strategy         IndexingStrategy @default(BOTH)
+  allowedLlms      String[]         @default([]) // ["openai","ollama","google","aws-bedrock"]
+  indexingLocation String           @default("any") // "same_storage"|"on-premise_or_kr"|"any"
+
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+
+  @@index([isActive, priority(sort: Desc)])
+  @@map("policies")
+}
+
+// ─────────────────────────────────────────────────────────────────
+// LLM Providers
+// ─────────────────────────────────────────────────────────────────
+
+model LlmProvider {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name         String   @unique // "openai" | "google" | "aws-bedrock" | "ollama"
+  displayName  String
+  baseUrl      String?
+  apiKeyEnc    String?  // AES-256-GCM encrypted API key
+  defaultModel String
+  isActive     Boolean  @default(true)
+  config       Json?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  queryLogs    QueryLog[]
+
+  @@map("llm_providers")
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Query Logs
+// ─────────────────────────────────────────────────────────────────
+
+model QueryLog {
+  id              String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId          String?          @db.Uuid
+  user            User?            @relation(fields: [userId], references: [id])
+  channel         QueryChannel     @default(API)
+  query           String
+  answer          String?
+  llmProviderId   String?          @db.Uuid
+  llmProvider     LlmProvider?     @relation(fields: [llmProviderId], references: [id])
+  llmModel        String?
+  strategy        IndexingStrategy?
+  documentsUsed   Json?            // [{documentId, chunkIndex, score, storageName}]
+  latencyMs       Int?
+  tokensInput     Int?
+  tokensOutput    Int?
+  feedback        Int?             // 1=positive, -1=negative
+  createdAt       DateTime         @default(now())
+
+  @@index([userId])
+  @@index([createdAt(sort: Desc)])
+  @@map("query_logs")
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Document Chunks (vector + vectorless — written by Python agent)
+// Defined here so Prisma migrations create the tables.
+// ─────────────────────────────────────────────────────────────────
+
+model DocumentChunk {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  documentId  String   // references documents.external_id (no FK to keep agent-independent)
+  storageId   String
+  chunkIndex  Int
+  content     String
+  // embedding vector(1024) — managed directly by Python agent via asyncpg
+  // Prisma does not write this column; raw SQL in migration adds it
+  metadata    Json?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([documentId, storageId])
+  @@map("document_chunks")
+}
+
+model DocumentPageIndex {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  documentId    String
+  storageId     String
+  pageNumber    Int?
+  sectionTitle  String?
+  content       String
+  // search_vector tsvector GENERATED — added via raw SQL migration
+  metadata      Json?
+  createdAt     DateTime @default(now())
+
+  @@index([documentId, storageId])
+  @@map("document_page_index")
+}
