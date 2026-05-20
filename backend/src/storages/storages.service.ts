@@ -42,9 +42,49 @@ export class StoragesService {
   }
 
   async findAll() {
-    return this.prisma.storage.findMany({
-      select: { id: true, name: true, provider: true, isActive: true, agentId: true, createdAt: true },
+    const rows = await this.prisma.storage.findMany({
       orderBy: { createdAt: 'desc' },
+      include: {
+        agent: {
+          select: {
+            id: true,
+            name: true,
+            endpoint: true,
+            status: true,
+            lastHeartbeat: true,
+            createdAt: true,
+          },
+        },
+      },
+    });
+
+    return rows.map((s) => {
+      let bucketOrPath = '—';
+      let region: string | null = null;
+      try {
+        const cfg = JSON.parse(this.decrypt(s.configEnc));
+        bucketOrPath =
+          cfg.bucketOrPath ??
+          cfg.bucket ??
+          cfg.path ??
+          cfg.watchPath ??
+          bucketOrPath;
+        region = cfg.region ?? cfg.awsRegion ?? null;
+      } catch {
+        /* keep defaults */
+      }
+
+      return {
+        id: s.id,
+        name: s.name,
+        provider: s.provider,
+        bucketOrPath,
+        region,
+        isActive: s.isActive,
+        agentId: s.agentId,
+        agent: s.agent,
+        createdAt: s.createdAt,
+      };
     });
   }
 

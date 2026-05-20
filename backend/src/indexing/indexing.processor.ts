@@ -6,7 +6,7 @@ import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 import { JobStatus, EventType } from '@prisma/client';
 import { firstValueFrom } from 'rxjs';
-import { INDEXING_QUEUE } from './indexing.module';
+import { INDEXING_QUEUE } from './indexing.constants';
 
 interface IndexJobData {
   jobId: string;

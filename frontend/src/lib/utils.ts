@@ -29,9 +29,13 @@ export function securityLevelColor(level: string) {
 export function jobStatusColor(status: string) {
   const map: Record<string, string> = {
     PENDING: 'bg-gray-100 text-gray-700',
+    RUNNING: 'bg-blue-100 text-blue-700',
+    COMPLETED: 'bg-green-100 text-green-700',
+    FAILED: 'bg-red-100 text-red-700',
+    CANCELLED: 'bg-amber-100 text-amber-800',
+    // legacy 프론트 표기 호환
     PROCESSING: 'bg-blue-100 text-blue-700',
     DONE: 'bg-green-100 text-green-700',
-    FAILED: 'bg-red-100 text-red-700',
   };
   return map[status] ?? 'bg-gray-100 text-gray-700';
 }

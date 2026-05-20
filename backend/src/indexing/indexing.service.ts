@@ -3,7 +3,7 @@ import { InjectQueue } from '@nestjs/bull';
 import { Queue } from 'bull';
 import { PrismaService } from '../prisma/prisma.service';
 import { EventType, SecurityLevel, IndexingStrategy, JobStatus } from '@prisma/client';
-import { INDEXING_QUEUE } from './indexing.module';
+import { INDEXING_QUEUE } from './indexing.constants';
 
 @Injectable()
 export class IndexingService {
@@ -50,20 +50,23 @@ export class IndexingService {
   }
 
   async getQueueStats() {
-    const [waiting, active, completed, failed] = await Promise.all([
+    const [waiting, active, completed, failed, delayed] = await Promise.all([
       this.queue.getWaitingCount(),
       this.queue.getActiveCount(),
       this.queue.getCompletedCount(),
       this.queue.getFailedCount(),
+      this.queue.getDelayedCount(),
     ]);
-    return { waiting, active, completed, failed };
+    return { waiting, active, completed, failed, delayed };
   }
 
   async getRecentJobs(limit = 20) {
     return this.prisma.indexingJob.findMany({
       orderBy: { createdAt: 'desc' },
       take: limit,
-      include: { document: { select: { name: true, storageId: true } } },
+      include: {
+        document: { select: { externalId: true, name: true, storageId: true } },
+      },
     });
   }
 }

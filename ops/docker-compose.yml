@@ -1,4 +1,9 @@
-version: "3.9"
+# Compose reads ops/.env for ${VAR} substitution (symlink to ../.env — see ops/up or README).
+#   ./up -d          — recommended
+#   docker compose up -d   — works if ops/.env exists (ln -sf ../.env .env)
+#
+# 서비스별 `environment:` 는 env_file(.env)보다 우선합니다. 루트 .env 가 localhost URL 이더라도
+# 컨테이너 내부에서는 postgres / valkey / agent / backend 호스트명이 적용됩니다. (.test/scenario-docker-compose.md)
 
 services:
   # ── PostgreSQL + pgvector ────────────────────────────────────────
@@ -6,17 +11,19 @@ services:
     image: pgvector/pgvector:pg16
     container_name: docmonauto-postgres
     restart: unless-stopped
+    env_file:
+      - ../.env
     environment:
-      POSTGRES_DB: ${DATABASE_NAME}
-      POSTGRES_USER: ${DATABASE_USER}
-      POSTGRES_PASSWORD: ${DATABASE_PASSWORD}
+      POSTGRES_DB: ${DATABASE_NAME:-docmonauto}
+      POSTGRES_USER: ${DATABASE_USER:-docmonauto}
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD:?Set DATABASE_PASSWORD in .env}
     ports:
       - "${DATABASE_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./init-db.sql:/docker-entrypoint-initdb.d/init-db.sql:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DATABASE_USER} -d ${DATABASE_NAME}"]
+      test: ["CMD-SHELL", "pg_isready -U ${DATABASE_USER:-docmonauto} -d ${DATABASE_NAME:-docmonauto}"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -26,13 +33,16 @@ services:
     image: valkey/valkey:8-alpine
     container_name: docmonauto-valkey
     restart: unless-stopped
-    command: valkey-server --requirepass ${REDIS_PASSWORD:-}
+    env_file:
+      - ../.env
+    command: >
+      sh -c 'if [ -n "$$REDIS_PASSWORD" ]; then exec valkey-server --requirepass "$$REDIS_PASSWORD"; else exec valkey-server; fi'
     ports:
       - "${REDIS_PORT:-6379}:6379"
     volumes:
       - valkey_data:/data
     healthcheck:
-      test: ["CMD", "valkey-cli", "ping"]
+      test: ["CMD-SHELL", "if [ -n \"$$REDIS_PASSWORD\" ]; then valkey-cli -a \"$$REDIS_PASSWORD\" ping; else valkey-cli ping; fi | grep -q PONG"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -40,33 +50,58 @@ services:
   # ── Backend (NestJS) ────────────────────────────────────────────
   backend:
     build:
-      context: ../backend
-      dockerfile: Dockerfile
+      context: ..
+      dockerfile: backend/Dockerfile
       target: development
     container_name: docmonauto-backend
     restart: unless-stopped
     env_file:
       - ../.env
     environment:
-      DATABASE_URL: postgresql://${DATABASE_USER}:${DATABASE_PASSWORD}@postgres:5432/${DATABASE_NAME}
-      REDIS_URL: redis://:${REDIS_PASSWORD:-}@valkey:6379
+      DATABASE_URL: postgresql://${DATABASE_USER:-docmonauto}:${DATABASE_PASSWORD}@postgres:5432/${DATABASE_NAME:-docmonauto}
+      REDIS_HOST: valkey
       AGENT_BASE_URL: http://agent:${AGENT_PORT:-8080}
     ports:
       - "${APP_PORT:-3001}:3001"
     volumes:
       - ../backend:/app
+      - ../database/prisma:/app/prisma:ro
       - /app/node_modules
+    command: ["sh", "/app/docker-entrypoint.dev.sh"]
     depends_on:
       postgres:
         condition: service_healthy
       valkey:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3001/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:3001/v1/health"]
       interval: 15s
       timeout: 5s
       retries: 5
       start_period: 30s
+
+  # ── Frontend (Next.js) ─────────────────────────────────────────
+  frontend:
+    build:
+      context: ..
+      dockerfile: frontend/Dockerfile
+      target: development
+    container_name: docmonauto-frontend
+    restart: unless-stopped
+    env_file:
+      - ../.env
+    environment:
+      # 브라우저(호스트) → 백엔드: 반드시 호스트에서 접근 가능한 URL
+      NEXT_PUBLIC_BACKEND_URL: ${NEXT_PUBLIC_BACKEND_URL:-http://localhost:3001}
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"
+    volumes:
+      - ../frontend:/app
+      - /app/node_modules
+    command: ["sh", "./docker-entrypoint.dev.sh"]
+    depends_on:
+      backend:
+        condition: service_healthy
 
   # ── Storage Agent (Python FastAPI) ─────────────────────────────
   agent:
@@ -78,7 +113,7 @@ services:
     env_file:
       - ../.env
     environment:
-      DATABASE_URL: postgresql://${DATABASE_USER}:${DATABASE_PASSWORD}@postgres:5432/${DATABASE_NAME}
+      DATABASE_URL: postgresql://${DATABASE_USER:-docmonauto}:${DATABASE_PASSWORD}@postgres:5432/${DATABASE_NAME:-docmonauto}
       BACKEND_URL: http://backend:${APP_PORT:-3001}
       AGENT_PORT: ${AGENT_PORT:-8080}
     ports:

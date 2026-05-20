@@ -30,8 +30,8 @@ export default function ChatPage() {
         role: 'assistant',
         content: data.answer,
         sources: data.sources,
-        llmProvider: data.llmProvider,
-        llmModel: data.llmModel,
+        llmProvider: data.llmProvider ?? undefined,
+        llmModel: data.llmModel ?? undefined,
         latencyMs: data.latencyMs,
         createdAt: new Date(),
       };
@@ -146,7 +146,7 @@ export default function ChatPage() {
                       <span
                         key={i}
                         className="inline-flex items-center gap-1 px-2 py-0.5 bg-gray-100 rounded text-xs text-gray-500"
-                        title={src.text}
+                        title={src.text || src.excerpt || ''}
                       >
                         <FileText className="w-3 h-3" />
                         출처 {i + 1} (score: {src.score.toFixed(2)})
@@ -155,10 +155,17 @@ export default function ChatPage() {
                   </div>
                 )}
 
-                {msg.role === 'assistant' && msg.llmModel && (
+                {msg.role === 'assistant' &&
+                  (msg.latencyMs != null || msg.llmProvider || msg.llmModel) && (
                   <div className="flex items-center gap-2 text-xs text-gray-400">
                     <Clock className="w-3 h-3" />
-                    {msg.latencyMs}ms · {msg.llmProvider}/{msg.llmModel}
+                    {msg.latencyMs != null ? `${msg.latencyMs}ms` : '—'}
+                    {(msg.llmProvider || msg.llmModel) && (
+                      <>
+                        {' '}
+                        · {msg.llmProvider ?? '—'}/{msg.llmModel ?? '—'}
+                      </>
+                    )}
                   </div>
                 )}
               </div>

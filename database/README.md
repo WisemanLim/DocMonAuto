@@ -54,13 +54,24 @@ npm install
 
 ### 환경변수
 
+프로젝트 **루트의 `.env`** 를 두는 것을 권장합니다 (`database/prisma/seed.ts` 가 자동으로 읽습니다).
+
+**주의:** `DATABASE_PASSWORD`(Docker Compose의 `POSTGRES_PASSWORD`와 동일)만 바꾸고 `DATABASE_URL` 안의 비밀번호는 그대로 두면 `Authentication failed` 가 납니다. 시드 스크립트는 **`DATABASE_PASSWORD`가 설정되어 있으면 `DATABASE_URL`을 호스트·포트·유저와 함께 다시 조립**합니다.
+
+환경 시험 시나리오는 저장소 [`.test/`](../.test/) 디렉터리를 참고하세요.
+
 ```bash
-# database/.env 생성 (또는 루트 .env 사용)
-DATABASE_URL="postgresql://docmonauto:password@localhost:5432/docmonauto"
-AGENT_SECRET="dev-agent-secret"
-OLLAMA_BASE_URL="http://localhost:11434"
-OLLAMA_DEFAULT_MODEL="llama3.2"
+# 루트 .env 예시 — DATABASE_PASSWORD와 URL 속 비밀번호를 반드시 일치시키거나,
+# 분해 변수(DATABASE_*)만 맞추고 시드/앱이 URL을 맞추도록 둡니다.
+DATABASE_HOST=localhost
+DATABASE_PORT=5432
+DATABASE_NAME=docmonauto
+DATABASE_USER=docmonauto
+DATABASE_PASSWORD=실제-DB-비밀번호
+DATABASE_URL=postgresql://docmonauto:실제-DB-비밀번호@localhost:5432/docmonauto
 ```
+
+`database/prisma/.env` 를 따로 쓸 경우 Prisma CLI(`migrate`, `studio`)는 그 파일을 우선할 수 있으니, 루트 `.env` 와 동일한 연결 정보를 유지하세요.
 
 ### 마이그레이션 실행 (개발)
 

@@ -11,6 +11,7 @@ DocMonAuto 전체 스택의 컨테이너 오케스트레이션 및 인프라 설
 | `postgres` | `pgvector/pgvector:pg16` | 5432 | PostgreSQL + pgvector 확장 |
 | `valkey` | `valkey/valkey:8-alpine` | 6379 | Redis 호환 메시지 큐 (BSD-3) |
 | `backend` | 로컬 빌드 | 3001 | NestJS API 서버 |
+| `frontend` | 로컬 빌드 | 3000 | Next.js 웹 UI |
 | `agent` | 로컬 빌드 | 8080 | Python 스토리지 에이전트 |
 
 ---
@@ -19,6 +20,7 @@ DocMonAuto 전체 스택의 컨테이너 오케스트레이션 및 인프라 설
 
 - Docker Engine 24+ 및 Docker Compose v2
 - 루트에 `.env` 파일 생성 완료 (`.env.example` 참고)
+- 로컬 단독 실행과 Compose가 동시에 만족하는 설정은 [`.test/scenario-docker-compose.md`](../.test/scenario-docker-compose.md) 참고
 
 ---
 
@@ -44,29 +46,36 @@ mkdir -p /tmp/docmonauto-watch
 ```bash
 cd ops
 
+# Compose가 ${DATABASE_*} 치환에 쓰는 ops/.env ← 루트 .env 링크 (최초 1회)
+ln -sf ../.env .env
+
 # 전체 스택 시작 (백그라운드)
-docker compose up -d
+./up -d
+# 또는: docker compose up -d   (ops/.env 가 있을 때)
 
 # 로그 확인
 docker compose logs -f
 
 # 특정 서비스 로그만
 docker compose logs -f backend
+docker compose logs -f frontend
 docker compose logs -f agent
 ```
 
 ### 개발 중 핫리로드
 
-backend와 agent는 개발 모드에서 소스 볼륨 마운트로 핫리로드됩니다.
+backend, agent, frontend는 개발 모드에서 소스 볼륨 마운트로 핫리로드됩니다.
 
 ```bash
 # backend: src/ 변경 시 자동 재시작 (nest start --watch)
 # agent: uvicorn --reload 모드
+# frontend: next dev (0.0.0.0 바인딩)
 
 # 서비스 재빌드가 필요한 경우 (의존성 변경 시)
 docker compose build backend
 docker compose build agent
-docker compose up -d backend agent
+docker compose build frontend
+docker compose up -d backend agent frontend
 ```
 
 ### DB 초기화 (최초 1회)
@@ -141,7 +150,7 @@ docker compose exec backend \
 
 ```bash
 # backend
-curl http://localhost:3001/health
+curl http://localhost:3001/v1/health
 
 # agent
 curl http://localhost:8080/health
@@ -161,6 +170,7 @@ docker compose exec valkey valkey-cli ping
 postgres (healthy)
     └── valkey (healthy)
             └── backend (healthy)
+                    ├── frontend
                     └── agent
 ```
 
@@ -185,6 +195,17 @@ Docker Compose `depends_on.condition: service_healthy`로 자동 제어됩니다
 docker compose logs postgres
 # pgvector 이미지 pull 실패 시:
 docker pull pgvector/pgvector:pg16
+```
+
+**backend가 unhealthy (`Exec format error`, bcrypt)**
+
+호스트(Mac)에서 설치한 `node_modules`가 Compose 익명 볼륨에 섞이면 Linux 컨테이너에서 네이티브 모듈이 깨질 수 있습니다. 현재 백엔드는 **`bcryptjs`(순수 JS)** 를 사용합니다. 이미지 재빌드 후 다시 기동하세요.
+
+```bash
+docker compose logs backend --tail 80
+docker compose down
+docker compose build --no-cache backend
+docker compose up -d
 ```
 
 **agent가 backend에 연결 못 함**

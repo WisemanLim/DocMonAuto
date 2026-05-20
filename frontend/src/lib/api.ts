@@ -4,12 +4,13 @@ import type {
   Storage,
   Policy,
   Agent,
-  AgentStatus,
   IndexingJob,
   QueueStats,
   QueryLog,
   QueryResponse,
+  QuerySource,
   DashboardStats,
+  StorageProvider,
 } from '@/types';
 
 const api = axios.create({
@@ -37,49 +38,98 @@ api.interceptors.response.use(
   },
 );
 
+function normalizeQueryResponse(raw: QueryResponse): QueryResponse {
+  const sources: QuerySource[] = (raw.sources ?? []).map((s) => ({
+    documentId: s.documentId,
+    storageId: s.storageId,
+    score: typeof s.score === 'number' ? s.score : 0,
+    source: s.source ?? null,
+    excerpt: s.excerpt ?? null,
+    text: s.text ?? s.excerpt ?? '',
+  }));
+  return {
+    ...raw,
+    sources,
+    llmProvider: raw.llmProvider ?? raw.provider ?? null,
+    llmModel: raw.llmModel ?? raw.model ?? null,
+  };
+}
+
 export const authApi = {
   login: (email: string, password: string) =>
-    api.post<AuthResponse>('/api/v1/auth/login', { email, password }).then((r) => r.data),
+    api.post<AuthResponse>('/v1/auth/login', { email, password }).then((r) => r.data),
 };
 
 export const queryApi = {
   ask: (query: string) =>
-    api.post<QueryResponse>('/api/v1/query', { query, channel: 'BROWSER' }).then((r) => r.data),
-  history: () =>
-    api.get<QueryLog[]>('/api/v1/query/history').then((r) => r.data),
+    api
+      .post<QueryResponse>('/v1/query', { query, channel: 'BROWSER' })
+      .then((r) => normalizeQueryResponse(r.data)),
+  history: () => api.get<QueryLog[]>('/v1/query/history').then((r) => r.data),
+};
+
+export type StorageCreateInput = {
+  name: string;
+  provider: StorageProvider;
+  bucketOrPath: string;
+  region?: string;
+  agentId?: string;
 };
 
 export const storagesApi = {
-  list: () => api.get<Storage[]>('/api/v1/storages').then((r) => r.data),
-  create: (data: Partial<Storage> & { credentials?: Record<string, string> }) =>
-    api.post<Storage>('/api/v1/storages', data).then((r) => r.data),
+  list: () => api.get<Storage[]>('/v1/storages').then((r) => r.data),
+  create: (data: StorageCreateInput) => {
+    const config: Record<string, string> = { bucketOrPath: data.bucketOrPath };
+    if (data.provider === 'ON_PREMISE') {
+      config.watchPath = data.bucketOrPath;
+    }
+    if (data.region) {
+      config.region = data.region;
+    }
+    return api
+      .post<Storage>('/v1/storages', {
+        name: data.name,
+        provider: data.provider,
+        config,
+        agentId: data.agentId,
+      })
+      .then((r) => r.data);
+  },
   toggleActive: (id: string, isActive: boolean) =>
-    api.patch<Storage>(`/api/v1/storages/${id}/active`, { isActive }).then((r) => r.data),
-  remove: (id: string) => api.delete(`/api/v1/storages/${id}`),
+    api.patch<Storage>(`/v1/storages/${id}/active`, { isActive }).then((r) => r.data),
+  remove: (id: string) => api.delete(`/v1/storages/${id}`),
 };
 
 export const policiesApi = {
-  list: () => api.get<Policy[]>('/api/v1/policies').then((r) => r.data),
-  create: (data: Partial<Policy>) =>
-    api.post<Policy>('/api/v1/policies', data).then((r) => r.data),
+  list: () => api.get<Policy[]>('/v1/policies').then((r) => r.data),
+  create: (data: Partial<Policy>) => api.post<Policy>('/v1/policies', data).then((r) => r.data),
   update: (id: string, data: Partial<Policy>) =>
-    api.put<Policy>(`/api/v1/policies/${id}`, data).then((r) => r.data),
-  remove: (id: string) => api.delete(`/api/v1/policies/${id}`),
+    api.put<Policy>(`/v1/policies/${id}`, data).then((r) => r.data),
+  remove: (id: string) => api.delete(`/v1/policies/${id}`),
 };
 
 export const indexingApi = {
-  stats: () => api.get<QueueStats>('/api/v1/indexing/stats').then((r) => r.data),
-  jobs: () => api.get<IndexingJob[]>('/api/v1/indexing/jobs').then((r) => r.data),
+  stats: () => api.get<QueueStats>('/v1/indexing/stats').then((r) => r.data),
+  jobs: () => api.get<IndexingJob[]>('/v1/indexing/jobs').then((r) => r.data),
+};
+
+export type RegisterAgentInput = {
+  name: string;
+  endpoint: string;
+  secret: string;
+  watchPath?: string;
 };
 
 export const adminApi = {
-  dashboard: () => api.get<DashboardStats>('/api/v1/admin/dashboard').then((r) => r.data),
-  agents: () => api.get<Agent[]>('/api/v1/admin/agents').then((r) => r.data),
-  createAgent: (data: { name: string; endpoint: string }) =>
-    api.post<Agent>('/api/v1/admin/agents', data).then((r) => r.data),
+  dashboard: () => api.get<DashboardStats>('/v1/admin/dashboard').then((r) => r.data),
+  agents: () => api.get<Agent[]>('/v1/admin/agents').then((r) => r.data),
+  createAgent: (data: RegisterAgentInput) =>
+    api.post<Agent>('/v1/admin/agents', data).then((r) => r.data),
   pingAgent: (id: string) =>
-    api.post<{ status: AgentStatus; latencyMs: number }>(`/api/v1/admin/agents/${id}/ping`).then((r) => r.data),
-  queryLogs: () => api.get<QueryLog[]>('/api/v1/admin/query-logs').then((r) => r.data),
+    api
+      .post<{ status: 'online' | 'offline'; latencyMs: number }>(`/v1/admin/agents/${id}/ping`)
+      .then((r) => r.data),
+  queryLogs: () => api.get<QueryLog[]>('/v1/admin/query-logs').then((r) => r.data),
 };
 
 export default api;

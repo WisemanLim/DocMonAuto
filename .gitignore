@@ -4,6 +4,68 @@ bower_components
 node_modules
 .next
 
+# ── Node / TypeScript (backend, frontend, database 및 하위 패키지 공통) ─────────
+dist/
+build/
+*.tsbuildinfo
+.turbo
+.cache/
+.parcel-cache/
+coverage/
+.nyc_output/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Next.js
+out/
+
+# ESLint
+.eslintcache
+
+# ── Python (agent 및 스크립트 공통) ───────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+*.so
+*.egg
+*.egg-info/
+.eggs/
+pip-wheel-metadata/
+share/python-wheels/
+downloads/
+eggs/
+parts/
+sdist/
+var/
+wheels/
+develop-eggs/
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+
+# Test / typing / linters
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.hypothesis/
+htmlcov/
+.tox/
+.nox/
+coverage.xml
+*.cover
+
+# ── 기타 도구 ─────────────────────────────────────────────────────────────────
+*.swp
+*.swo
+
 # Generated files
 .psci
 output
@@ -18,3 +80,9 @@ output
 # OS files
 .DS_Store
 Thumbs.db
+
+# Secrets & local env (ops/.env is usually a symlink to ../.env)
+.env
+.env.*
+!.env.example
+ops/.env

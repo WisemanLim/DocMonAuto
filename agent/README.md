@@ -52,7 +52,8 @@
 
 - Python 3.12+
 - PostgreSQL 실행 중 (pgvector, pg_trgm 확장 활성화)
-- NestJS 백엔드 실행 중 (`BACKEND_URL` 설정)
+- NestJS 백엔드 실행 중 — 로컬 실행 시 `BACKEND_URL=http://localhost:3001`  
+- 로컬·Compose 공통 설정 요약: [`.test/scenario-local-components.md`](../.test/scenario-local-components.md)
 
 ---
 

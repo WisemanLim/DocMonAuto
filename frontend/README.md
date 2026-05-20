@@ -40,6 +40,7 @@ DocMonAuto의 웹 프론트엔드. 챗 인터페이스 + 관리자 대시보드.
 
 - Node.js 22+
 - NestJS 백엔드 실행 중 (`http://localhost:3001`)
+- API URL은 `.env.local` 의 `NEXT_PUBLIC_BACKEND_URL` — [`.test/scenario-local-components.md`](../.test/scenario-local-components.md)
 
 ---
 
@@ -98,9 +99,10 @@ npm run start
 ### Docker로 실행
 
 ```bash
-docker build -t docmonauto-frontend .
+# 저장소 루트에서 (컨텍스트는 프로젝트 루트 — ops/docker-compose와 동일)
+docker build -f frontend/Dockerfile -t docmonauto-frontend .
 docker run -p 3000:3000 \
-  -e NEXT_PUBLIC_BACKEND_URL=http://backend:3001 \
+  -e NEXT_PUBLIC_BACKEND_URL=http://localhost:3001 \
   docmonauto-frontend
 ```
 
@@ -124,7 +126,7 @@ docker compose up -d
 
 ## 인증 흐름
 
-1. `/login` → `POST /api/v1/auth/login` → JWT 수신
+1. `/login` → `POST /v1/auth/login` → JWT 수신
 2. JWT는 `localStorage`에 저장
 3. Axios 인터셉터가 모든 요청에 `Authorization: Bearer <token>` 자동 첨부
 4. 401 응답 시 자동 로그아웃 → `/login` 리다이렉트

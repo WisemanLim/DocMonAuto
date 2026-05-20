@@ -64,7 +64,10 @@ export class IndexRouterService {
     // Group by agent endpoint
     const byAgent = new Map<string, typeof docs>();
     for (const doc of docs) {
-      const ep = doc.storage.agent?.endpoint ?? this.cfg.get('AGENT_BASE_URL', 'http://agent:8080');
+      const ep: string =
+        doc.storage.agent?.endpoint ??
+        this.cfg.get<string>('AGENT_BASE_URL') ??
+        'http://agent:8080';
       if (!byAgent.has(ep)) byAgent.set(ep, []);
       byAgent.get(ep)!.push(doc);
     }

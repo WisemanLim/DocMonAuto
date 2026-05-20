@@ -4,8 +4,7 @@ import { HttpModule } from '@nestjs/axios';
 import { IndexingService } from './indexing.service';
 import { IndexingProcessor } from './indexing.processor';
 import { IndexingController } from './indexing.controller';
-
-export const INDEXING_QUEUE = 'indexing';
+import { INDEXING_QUEUE } from './indexing.constants';
 
 @Module({
   imports: [

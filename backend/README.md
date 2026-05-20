@@ -62,6 +62,9 @@ npm install
 
 루트의 `.env` 파일을 사용합니다. 필수 변수:
 
+**로컬에서 `npm run start:dev` 만 실행할 때** 백엔드가 같은 머신의 에이전트를 부르려면 `AGENT_BASE_URL=http://localhost:8080` 을 권장합니다.  
+`ops/docker compose` 로 백엔드를 띄우는 경우, compose 파일의 `environment.AGENT_BASE_URL`(서비스 간 호스트명)이 `.env` 값을 덮어씁니다. [.env.example](../.env.example) 상단 주석 참고.
+
 ```env
 APP_ENV=development
 APP_PORT=3001

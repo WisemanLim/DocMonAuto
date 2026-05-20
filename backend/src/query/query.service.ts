@@ -47,14 +47,33 @@ export class QueryService {
     );
 
     if (!plans.length) {
-      return { answer: 'No accessible indexed documents found.', sources: [] };
+      const latencyMs = Date.now() - start;
+      return {
+        answer: '인덱싱된 문서가 없거나 접근 가능한 스토리지가 없습니다.',
+        sources: [],
+        latencyMs,
+        logId: null as string | null,
+        llmProvider: null as string | null,
+        llmModel: null as string | null,
+        provider: null as string | null,
+        model: null as string | null,
+      };
     }
 
-    // 3. Federated search across agents
     const searchResults = await this.router.search(dto.query, plans);
 
     if (!searchResults.length) {
-      return { answer: 'No relevant documents found for your query.', sources: [] };
+      const latencyMs = Date.now() - start;
+      return {
+        answer: '관련 문서를 찾지 못했습니다.',
+        sources: [],
+        latencyMs,
+        logId: null as string | null,
+        llmProvider: null as string | null,
+        llmModel: null as string | null,
+        provider: null as string | null,
+        model: null as string | null,
+      };
     }
 
     // 4. Build context from top results
@@ -79,7 +98,7 @@ export class QueryService {
       where: { name: llmRes.provider },
     });
 
-    await this.prisma.queryLog.create({
+    const log = await this.prisma.queryLog.create({
       data: {
         userId: user.id,
         channel,
@@ -104,7 +123,10 @@ export class QueryService {
       answer: llmRes.answer,
       provider: llmRes.provider,
       model: llmRes.model,
+      llmProvider: llmRes.provider,
+      llmModel: llmRes.model,
       latencyMs,
+      logId: log.id,
       sources: searchResults.slice(0, 5).map((r) => ({
         documentId: r.documentId,
         storageId: r.storageId,
@@ -126,11 +148,21 @@ export class QueryService {
   }
 
   async getHistory(userId: string, limit = 20) {
-    return this.prisma.queryLog.findMany({
+    const rows = await this.prisma.queryLog.findMany({
       where: { userId },
       orderBy: { createdAt: 'desc' },
       take: limit,
-      select: { id: true, query: true, answer: true, latencyMs: true, createdAt: true, llmModel: true },
+      include: { llmProvider: { select: { name: true } } },
     });
+    return rows.map((q) => ({
+      id: q.id,
+      query: q.query,
+      answer: q.answer,
+      llmProvider: q.llmProvider?.name ?? null,
+      llmModel: q.llmModel,
+      latencyMs: q.latencyMs,
+      channel: q.channel,
+      createdAt: q.createdAt,
+    }));
   }
 }

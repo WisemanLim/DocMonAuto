@@ -59,11 +59,30 @@ export class PolicyService {
   }
 
   async create(data: any) {
-    return this.prisma.policy.create({ data });
+    return this.prisma.policy.create({
+      data: {
+        name: data.name,
+        description: data.description ?? undefined,
+        priority: data.priority ?? 0,
+        isActive: data.isActive ?? true,
+        securityLevels: data.securityLevels ?? [],
+        jurisdictions: data.jurisdictions ?? [],
+        orgUnits: data.orgUnits ?? [],
+        strategy: data.strategy ?? IndexingStrategy.BOTH,
+        allowedLlms: data.allowedLlms ?? [],
+        indexingLocation: typeof data.indexingLocation === 'string' ? data.indexingLocation : 'any',
+      },
+    });
   }
 
-  async update(id: string, data: any) {
-    return this.prisma.policy.update({ where: { id }, data });
+  async update(id: string, data: Record<string, unknown>) {
+    const clean = Object.fromEntries(
+      Object.entries(data).filter(([, v]) => v !== undefined),
+    ) as Record<string, unknown>;
+    return this.prisma.policy.update({
+      where: { id },
+      data: clean as never,
+    });
   }
 
   async remove(id: string) {

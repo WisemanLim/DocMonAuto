@@ -97,7 +97,10 @@ export class EventsService {
     // Query frequency in last 30 days
     const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
     const qfRaw = await this.prisma.queryLog.count({
-      where: { createdAt: { gte: since }, documentsUsed: { path: '$[*].documentId', equals: documentId } },
+      where: {
+        createdAt: { gte: since },
+        documentsUsed: { array_contains: [{ documentId }] },
+      },
     });
     const queryFreq = Math.min(qfRaw / 100, 1.0); // normalize 0..1
 

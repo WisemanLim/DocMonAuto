@@ -1,5 +1,34 @@
+import { config } from 'dotenv';
+import { existsSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { PrismaClient, UserRole, SecurityLevel, Jurisdiction, IndexingStrategy, StorageProvider, AgentStatus } from '@prisma/client';
-import * as bcrypt from 'bcrypt';
+import * as bcrypt from 'bcryptjs';
+
+const rootEnv = resolve(__dirname, '../../.env');
+const databaseEnv = resolve(__dirname, '../.env');
+if (existsSync(rootEnv)) {
+  config({ path: rootEnv });
+}
+/** `database/.env` 가 있으면 같은 키는 여기 우선 (로컬 DB 전용 비번 등) */
+if (existsSync(databaseEnv)) {
+  config({ path: databaseEnv, override: true });
+}
+
+/**
+ * `.env`에서 DATABASE_PASSWORD만 Docker용으로 바꾸고 DATABASE_URL은 예전 값으로 남는 경우가 많습니다.
+ * Prisma는 DATABASE_URL만 사용하므로, 분해된 변수가 있으면 여기서 URL을 맞춥니다.
+ */
+function syncDatabaseUrlFromParts() {
+  const pass = process.env.DATABASE_PASSWORD?.trim();
+  if (!pass) return;
+  const host = process.env.DATABASE_HOST ?? 'localhost';
+  const port = process.env.DATABASE_PORT ?? '5432';
+  const name = process.env.DATABASE_NAME ?? 'docmonauto';
+  const user = process.env.DATABASE_USER ?? 'docmonauto';
+  process.env.DATABASE_URL = `postgresql://${encodeURIComponent(user)}:${encodeURIComponent(pass)}@${host}:${port}/${name}`;
+}
+
+syncDatabaseUrlFromParts();
 
 const prisma = new PrismaClient();
 
@@ -30,10 +59,17 @@ async function main() {
   `);
 
   // ── Super admin user ────────────────────────────────────────────
-  const adminPassword = await bcrypt.hash('Admin1234!', 10);
+  const adminPassword = bcrypt.hashSync('Admin1234!', 10);
   const admin = await prisma.user.upsert({
     where: { email: 'admin@docmonauto.local' },
-    update: {},
+    update: {
+      password: adminPassword,
+      name: 'System Admin',
+      role: UserRole.SUPER_ADMIN,
+      orgUnit: 'IT',
+      jurisdiction: Jurisdiction.GLOBAL,
+      isActive: true,
+    },
     create: {
       email: 'admin@docmonauto.local',
       name: 'System Admin',
@@ -46,10 +82,17 @@ async function main() {
   console.log(`  ✓ admin user: ${admin.email}`);
 
   // ── Demo viewer user ────────────────────────────────────────────
-  const viewerPw = await bcrypt.hash('Viewer1234!', 10);
+  const viewerPw = bcrypt.hashSync('Viewer1234!', 10);
   const viewer = await prisma.user.upsert({
     where: { email: 'viewer@docmonauto.local' },
-    update: {},
+    update: {
+      password: viewerPw,
+      name: 'Demo Viewer',
+      role: UserRole.VIEWER,
+      orgUnit: 'General',
+      jurisdiction: Jurisdiction.KR,
+      isActive: true,
+    },
     create: {
       email: 'viewer@docmonauto.local',
       name: 'Demo Viewer',
@@ -63,7 +106,7 @@ async function main() {
 
   // ── Local dev agent ─────────────────────────────────────────────
   const agentSecret = process.env.AGENT_SECRET ?? 'dev-agent-secret';
-  const agentHash = await bcrypt.hash(agentSecret, 10);
+  const agentHash = bcrypt.hashSync(agentSecret, 10);
   const agent = await prisma.agent.upsert({
     where: { id: '00000000-0000-0000-0000-000000000001' },
     update: { secretHash: agentHash, status: AgentStatus.OFFLINE },
@@ -93,9 +136,10 @@ async function main() {
   });
   console.log(`  ✓ storage: ${localStorage.name}`);
 
-  // ── Default policies ─────────────────────────────────────────────
+  // ── Default policies (고정 UUID — name 은 unique 가 아니라 upsert 불가, id 기준) ──
   const policies = [
     {
+      id: '00000000-0000-0000-0000-000000000101',
       name: 'SECRET — on-premise only',
       description: 'SECRET 문서는 온프레 LLM + Vectorless 인덱싱만 허용',
       priority: 100,
@@ -107,6 +151,7 @@ async function main() {
       indexingLocation: 'same_storage',
     },
     {
+      id: '00000000-0000-0000-0000-000000000102',
       name: 'CONFIDENTIAL — KR/on-premise LLM',
       description: 'CONFIDENTIAL 문서는 KR 클라우드 또는 온프레 LLM 사용',
       priority: 80,
@@ -118,6 +163,7 @@ async function main() {
       indexingLocation: 'on-premise_or_kr',
     },
     {
+      id: '00000000-0000-0000-0000-000000000103',
       name: 'INTERNAL — all LLMs allowed',
       description: 'INTERNAL 이하 문서는 모든 LLM 사용 가능',
       priority: 50,
@@ -131,10 +177,11 @@ async function main() {
   ];
 
   for (const p of policies) {
+    const { id, ...data } = p;
     await prisma.policy.upsert({
-      where: { name: p.name } as any,
-      update: {},
-      create: p as any,
+      where: { id },
+      update: { ...data },
+      create: p,
     });
     console.log(`  ✓ policy: ${p.name}`);
   }

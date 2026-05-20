@@ -3,7 +3,7 @@ export type StorageProvider = 'AWS_S3' | 'GCP_STORAGE' | 'AZURE_BLOB' | 'ON_PREM
 export type SecurityLevel = 'OPEN' | 'INTERNAL' | 'CONFIDENTIAL' | 'SECRET';
 export type Jurisdiction = 'KR' | 'US' | 'EU' | 'GLOBAL';
 export type IndexingStrategy = 'VECTOR_ONLY' | 'VECTORLESS_ONLY' | 'BOTH';
-export type JobStatus = 'PENDING' | 'PROCESSING' | 'DONE' | 'FAILED';
+export type JobStatus = 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'CANCELLED';
 export type AgentStatus = 'ONLINE' | 'OFFLINE' | 'ERROR';
 export type QueryChannel = 'BROWSER' | 'API' | 'MCP' | 'A2A';
 
@@ -13,6 +13,7 @@ export interface User {
   name: string | null;
   role: UserRole;
   orgUnit: string | null;
+  jurisdiction?: Jurisdiction | null;
   createdAt: string;
 }
 
@@ -26,7 +27,8 @@ export interface Agent {
   name: string;
   endpoint: string;
   status: AgentStatus;
-  lastSeenAt: string | null;
+  watchPath?: string | null;
+  lastHeartbeat: string | Date | null;
   createdAt: string;
 }
 
@@ -59,11 +61,11 @@ export interface Policy {
 export interface IndexingJob {
   id: string;
   documentId: string;
-  document: { externalId: string; storageId: string } | null;
+  document: { externalId: string; storageId: string; name?: string } | null;
   status: JobStatus;
   strategy: IndexingStrategy;
   priorityScore: number;
-  errorMessage: string | null;
+  errorMsg: string | null;
   startedAt: string | null;
   completedAt: string | null;
   createdAt: string;
@@ -88,13 +90,24 @@ export interface QueryLog {
   createdAt: string;
 }
 
+export interface QuerySource {
+  documentId: string;
+  storageId?: string;
+  score: number;
+  source?: string | null;
+  excerpt?: string | null;
+  text?: string;
+}
+
 export interface QueryResponse {
   answer: string;
-  sources: Array<{ documentId: string; score: number; text: string }>;
-  llmProvider: string;
-  llmModel: string;
+  sources: QuerySource[];
+  llmProvider: string | null;
+  llmModel: string | null;
   latencyMs: number;
-  logId: string;
+  logId: string | null;
+  provider?: string | null;
+  model?: string | null;
 }
 
 export interface DashboardStats {

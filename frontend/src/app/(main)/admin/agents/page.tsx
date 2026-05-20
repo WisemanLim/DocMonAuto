@@ -7,7 +7,7 @@ import { agentStatusColor, formatDate } from '@/lib/utils';
 import { Plus, Wifi, Loader2, Server } from 'lucide-react';
 
 function AddAgentModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
-  const [form, setForm] = useState({ name: '', endpoint: '' });
+  const [form, setForm] = useState({ name: '', endpoint: '', secret: '', watchPath: '' });
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
 
@@ -16,7 +16,12 @@ function AddAgentModal({ onClose, onCreated }: { onClose: () => void; onCreated:
     setSubmitting(true);
     setError('');
     try {
-      await adminApi.createAgent(form);
+      await adminApi.createAgent({
+        name: form.name,
+        endpoint: form.endpoint,
+        secret: form.secret,
+        ...(form.watchPath.trim() ? { watchPath: form.watchPath.trim() } : {}),
+      });
       onCreated();
       onClose();
     } catch {
@@ -48,6 +53,28 @@ function AddAgentModal({ onClose, onCreated }: { onClose: () => void; onCreated:
               value={form.endpoint}
               onChange={(e) => setForm((f) => ({ ...f, endpoint: e.target.value }))}
               placeholder="http://agent:8080"
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">등록 시크릿</label>
+            <input
+              required
+              type="password"
+              autoComplete="new-password"
+              value={form.secret}
+              onChange={(e) => setForm((f) => ({ ...f, secret: e.target.value }))}
+              placeholder="백엔드 AGENT_SECRET과 동일"
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            <p className="text-xs text-gray-500 mt-1">에이전트 프로세스가 사용하는 비밀값과 일치해야 합니다.</p>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">감시 경로 (선택)</label>
+            <input
+              value={form.watchPath}
+              onChange={(e) => setForm((f) => ({ ...f, watchPath: e.target.value }))}
+              placeholder="/watch"
               className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>
@@ -143,7 +170,7 @@ export default function AgentsPage() {
                         </span>
                       </td>
                       <td className="px-5 py-3 text-gray-400 text-xs">
-                        {agent.lastSeenAt ? formatDate(agent.lastSeenAt) : '—'}
+                        {agent.lastHeartbeat ? formatDate(String(agent.lastHeartbeat)) : '—'}
                       </td>
                       <td className="px-5 py-3 text-gray-400 text-xs">{formatDate(agent.createdAt)}</td>
                       <td className="px-5 py-3 text-right">
